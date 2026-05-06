@@ -1,10 +1,23 @@
 # What did I shipped today?
 
-A Claude Code plugin that generates a shareable daily recap of your Claude Code sessions. Designed to land in the sweet spot between a standup update and a highlight reel - concrete, scannable, ready to paste into Slack for your manager or teammates.
+A Claude Code plugin that generates a shareable daily recap of your Claude Code sessions. The default output is short and Slack-friendly — a few bullets you can paste straight into a DM with your manager or team lead. Pass `--verbose` when you want the full report.
 
 ## What you get
 
 Run `/wdist` at the end of the day and Claude reads every session you ran today (across every project), groups them by outcome, and produces something shaped like this (fictional example):
+
+```
+*What I shipped — 2026-04-15 (Wednesday)*
+Mostly cart-checkout work — landed the new tax calculator, fixed two address-form regressions, unblocked mobile on the payment SDK.
+
+• *Tax calculator v2* — committed `1a2b3c4`, handles the EU VAT cases the old lookup rounded wrong.
+• *Address form regression* — PR #482, Safari autocomplete was eating the first character.
+• *Payment SDK upgrade unblocked for mobile* — migration notes published, mobile can pick up 4.x.
+
+_In progress:_ checkout funnel A/B — variant assignment isn't reading the cookie correctly yet.
+```
+
+Run `/wdist --verbose` for the full structured report (TL;DR, Shipped / In progress / Notes & followups sections, session footer):
 
 ```markdown
 # What I shipped on 2026-04-15 (Wednesday)
@@ -53,8 +66,10 @@ Restart Claude Code if the command doesn't show up immediately after /reload-plu
 ## Usage
 
 ```
-/wdist                  # recap of today
-/wdist 2026-04-15       # recap of a specific date
+/wdist                            # short Slack-friendly recap of today
+/wdist 2026-04-15                 # short recap of a specific date
+/wdist --verbose                  # full structured report for today
+/wdist 2026-04-15 --verbose       # full report for a specific date
 ```
 
 ## How it works
