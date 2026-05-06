@@ -38,23 +38,12 @@ def is_meta_user(text):
     """Skip wrapped non-prompt user records (hooks, command output)."""
     if not text:
         return True
-    t = text.lstrip()
-    return (
-        t.startswith("<system-reminder>")
-        or t.startswith("<command-")
-        or t.startswith("<local-command-")
-        or t.startswith("[Request interrupted")
-    )
-
-
-def in_day(ts):
-    """Compare ISO-8601 timestamps lexicographically against the day window."""
-    if not ts:
-        return False
-    return day_start_iso <= ts < day_end_iso or (
-        ts.endswith("Z")
-        and day_start_iso <= ts[:-1] < day_end_iso
-    )
+    return text.lstrip().startswith((
+        "<system-reminder>",
+        "<command-",
+        "<local-command-",
+        "[Request interrupted",
+    ))
 
 
 def summarize_session(path):
@@ -78,6 +67,9 @@ def summarize_session(path):
                 continue
             t = d.get("type")
             ts = d.get("timestamp")
+            # Strip trailing 'Z' so timestamps compare lexicographically against
+            # the naive ISO day window (cheaper than parsing each line).
+            ts_norm = ts[:-1] if ts and ts.endswith("Z") else ts
 
             if d.get("cwd") and not cwd:
                 cwd = d["cwd"]
@@ -86,7 +78,11 @@ def summarize_session(path):
             if t == "ai-title":
                 title = d.get("aiTitle") or title
 
-            if not in_day(ts):
+            if not ts_norm or not (day_start_iso <= ts_norm < day_end_iso):
+                # JSONL transcripts are append-only chronological; once we've
+                # entered and exited the day window, the rest can't contribute.
+                if first_ts_today is not None and ts_norm and ts_norm >= day_end_iso:
+                    break
                 continue
 
             if first_ts_today is None or ts < first_ts_today:
@@ -104,7 +100,8 @@ def summarize_session(path):
                         if first_user_today is None:
                             first_user_today = text
                         last_user_today = text
-                        user_msgs_today.append(text[:400])
+                        if len(user_msgs_today) < 20:
+                            user_msgs_today.append(text[:400])
             elif t == "assistant":
                 msg = d.get("message", {})
                 if isinstance(msg, dict):
@@ -127,7 +124,7 @@ def summarize_session(path):
         "first_user": (first_user_today or "")[:800],
         "last_user": (last_user_today or "")[:400],
         "last_assistant": (last_assistant_today or "")[:800],
-        "user_prompts": user_msgs_today[:20],
+        "user_prompts": user_msgs_today,
     }
 
 
