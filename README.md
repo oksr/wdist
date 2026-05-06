@@ -45,9 +45,10 @@ Output is also written to `~/claude-recaps/YYYY-MM-DD.md` so you can copy it lat
 ```
 /plugin marketplace add oksr/wdist
 /plugin install wdist@wdist
+/reload-plugins
 ```
 
-Restart Claude Code if the command doesn't show up immediately.
+Restart Claude Code if the command doesn't show up immediately after /reload-plugins.
 
 ## Usage
 
