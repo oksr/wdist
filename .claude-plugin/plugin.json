@@ -1,0 +1,12 @@
+{
+  "name": "wdist",
+  "version": "0.1.0",
+  "description": "What did I shipped today? — generate a shareable daily recap of your Claude Code sessions",
+  "author": {
+    "name": "Ofek Seroussi"
+  },
+  "homepage": "https://github.com/oksr/wdist",
+  "repository": "https://github.com/oksr/wdist",
+  "license": "MIT",
+  "keywords": ["recap", "standup", "productivity", "journal"]
+}

@@ -1,0 +1,18 @@
+{
+  "name": "wdist",
+  "owner": {
+    "name": "Ofek Seroussi"
+  },
+  "metadata": {
+    "description": "What did I shipped today? — daily recap of your Claude Code sessions",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "wdist",
+      "source": "./",
+      "description": "Generate a shareable daily recap of your Claude Code sessions, in a format between a standup and a highlight reel.",
+      "version": "0.1.0"
+    }
+  ]
+}
