@@ -4,7 +4,7 @@
     "name": "Ofek Seroussi"
   },
   "metadata": {
-    "description": "What did I shipped today? — daily recap of your Claude Code sessions",
+    "description": "What did I ship today? — daily recap of your Claude Code sessions",
     "version": "0.1.0"
   },
   "plugins": [

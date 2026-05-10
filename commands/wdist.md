@@ -1,5 +1,5 @@
 ---
-description: What did I shipped today? — generate a shareable daily recap of your Claude Code sessions
+description: What did I ship today? — generate a shareable daily recap of your Claude Code sessions
 argument-hint: "[YYYY-MM-DD] [--verbose]   (defaults to today, short Slack-friendly format)"
 ---
 

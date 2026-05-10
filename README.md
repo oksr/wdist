@@ -1,4 +1,4 @@
-# What did I shipped today?
+# What did I ship today?
 
 A Claude Code plugin that generates a shareable daily recap of your Claude Code sessions. The default output is short and Slack-friendly — a few bullets you can paste straight into a DM with your manager or team lead. Pass `--verbose` when you want the full report.
 
