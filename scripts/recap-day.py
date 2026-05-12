@@ -162,12 +162,25 @@ def repo_slug_for_cwd(cwd):
     return f"{m.group(1)}/{m.group(2)}" if m else None
 
 
-def releases_for_repo(slug):
-    """Return today's published, non-draft releases for slug, or [] on any failure."""
+def current_gh_user():
+    """Return the authenticated gh user's login, or None if unavailable."""
     try:
         r = subprocess.run(
-            ["gh", "release", "list", "-R", slug, "--limit", "30",
-             "--json", "publishedAt,tagName,name,isDraft,isPrerelease"],
+            ["gh", "api", "user", "--jq", ".login"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode != 0:
+        return None
+    return r.stdout.strip() or None
+
+
+def releases_for_repo(slug, gh_user):
+    """Return today's published, non-draft releases authored by gh_user, or []."""
+    try:
+        r = subprocess.run(
+            ["gh", "api", f"repos/{slug}/releases?per_page=30"],
             capture_output=True, text=True, timeout=10,
         )
     except (OSError, subprocess.SubprocessError):
@@ -180,32 +193,38 @@ def releases_for_repo(slug):
         return []
     out = []
     for rel in data:
-        if rel.get("isDraft"):
+        if rel.get("draft"):
             continue
-        pub = rel.get("publishedAt") or ""
+        author = (rel.get("author") or {}).get("login")
+        if author != gh_user:
+            continue
+        pub = rel.get("published_at") or ""
         pub_norm = pub[:-1] if pub.endswith("Z") else pub
         if not (day_start_iso <= pub_norm < day_end_iso):
             continue
-        tag = rel.get("tagName") or ""
+        tag = rel.get("tag_name") or ""
         out.append({
             "repo": slug,
             "tag": tag,
             "name": rel.get("name") or tag,
-            "url": f"https://github.com/{slug}/releases/tag/{tag}" if tag else None,
+            "url": rel.get("html_url") or (f"https://github.com/{slug}/releases/tag/{tag}" if tag else None),
             "published_at": pub,
-            "prerelease": bool(rel.get("isPrerelease")),
+            "prerelease": bool(rel.get("prerelease")),
+            "author": author,
         })
     return out
 
 
 releases = []
-seen_repos = set()
-for s in sessions:
-    slug = repo_slug_for_cwd(s.get("cwd"))
-    if not slug or slug in seen_repos:
-        continue
-    seen_repos.add(slug)
-    releases.extend(releases_for_repo(slug))
+gh_user = current_gh_user()
+if gh_user:
+    seen_repos = set()
+    for s in sessions:
+        slug = repo_slug_for_cwd(s.get("cwd"))
+        if not slug or slug in seen_repos:
+            continue
+        seen_repos.add(slug)
+        releases.extend(releases_for_repo(slug, gh_user))
 
 releases.sort(key=lambda r: r.get("published_at") or "")
 

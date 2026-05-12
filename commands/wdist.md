@@ -34,8 +34,9 @@ echo "VERBOSE=$VERBOSE DATE=$DATE"
 
 Then read `/tmp/recap-${DATE}.json`. It contains a `sessions` array (one
 entry per session with activity on the target date) and a `releases`
-array (GitHub releases published on the target date in any repo a
-session ran in).
+array (GitHub releases **personally authored by the current `gh` user**
+on the target date, in repos a session ran in — CI-bot releases and
+teammates' releases are filtered out).
 
 Per session:
 
@@ -54,8 +55,13 @@ Per release:
 - `url` — link to the release page (verbose mode only)
 - `published_at` — ISO timestamp
 - `prerelease` — true for GitHub prereleases (often staging/RC builds)
+- `author` — the GitHub login that cut the release (always the current
+  user; filtering happens in the extractor)
 
-The `releases` array may be empty (no deploys, or `gh` unavailable/unauth'd).
+The `releases` array may be empty — and most days it will be. Reasons:
+no manual release, `gh` unavailable/unauth'd, or every release in the
+relevant repos was cut by CI/teammates. **Empty `releases` is normal,
+not a signal something's wrong** — do not mention deploys in that case.
 
 ## Step 2 — Synthesize the recap
 
