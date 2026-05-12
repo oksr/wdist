@@ -7,7 +7,7 @@ Reads ~/.claude/projects/*/*.jsonl (top-level session files only — skips
 subagent transcripts) and emits a JSON document with one entry per session
 that contained activity on the target date.
 """
-import json, os, sys, glob, datetime
+import json, os, sys, glob, datetime, subprocess, re
 
 DATE = sys.argv[1] if len(sys.argv) > 1 else datetime.date.today().isoformat()
 day_start_dt = datetime.datetime.fromisoformat(DATE + "T00:00:00")
@@ -140,4 +140,76 @@ for project_dir in sorted(glob.glob(os.path.join(PROJECTS_DIR, "*"))):
             sessions.append(s)
 
 sessions.sort(key=lambda s: s["start"])
-print(json.dumps({"date": DATE, "count": len(sessions), "sessions": sessions}, indent=2, ensure_ascii=False))
+
+
+GITHUB_URL_RE = re.compile(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?/?$")
+
+
+def repo_slug_for_cwd(cwd):
+    """Return 'owner/name' for a cwd whose git origin points to github.com, else None."""
+    if not cwd or not os.path.isdir(cwd):
+        return None
+    try:
+        r = subprocess.run(
+            ["git", "-C", cwd, "remote", "get-url", "origin"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode != 0:
+        return None
+    m = GITHUB_URL_RE.search(r.stdout.strip())
+    return f"{m.group(1)}/{m.group(2)}" if m else None
+
+
+def releases_for_repo(slug):
+    """Return today's published, non-draft releases for slug, or [] on any failure."""
+    try:
+        r = subprocess.run(
+            ["gh", "release", "list", "-R", slug, "--limit", "30",
+             "--json", "publishedAt,tagName,name,isDraft,isPrerelease"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if r.returncode != 0:
+        return []
+    try:
+        data = json.loads(r.stdout)
+    except json.JSONDecodeError:
+        return []
+    out = []
+    for rel in data:
+        if rel.get("isDraft"):
+            continue
+        pub = rel.get("publishedAt") or ""
+        pub_norm = pub[:-1] if pub.endswith("Z") else pub
+        if not (day_start_iso <= pub_norm < day_end_iso):
+            continue
+        tag = rel.get("tagName") or ""
+        out.append({
+            "repo": slug,
+            "tag": tag,
+            "name": rel.get("name") or tag,
+            "url": f"https://github.com/{slug}/releases/tag/{tag}" if tag else None,
+            "published_at": pub,
+            "prerelease": bool(rel.get("isPrerelease")),
+        })
+    return out
+
+
+releases = []
+seen_repos = set()
+for s in sessions:
+    slug = repo_slug_for_cwd(s.get("cwd"))
+    if not slug or slug in seen_repos:
+        continue
+    seen_repos.add(slug)
+    releases.extend(releases_for_repo(slug))
+
+releases.sort(key=lambda r: r.get("published_at") or "")
+
+print(json.dumps(
+    {"date": DATE, "count": len(sessions), "sessions": sessions, "releases": releases},
+    indent=2, ensure_ascii=False,
+))
