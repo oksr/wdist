@@ -1,6 +1,6 @@
 {
   "name": "wdist",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "What did I ship today? — generate a shareable daily recap of your Claude Code sessions",
   "author": {
     "name": "Ofek Seroussi"

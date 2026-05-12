@@ -4,6 +4,16 @@ All notable changes to `wdist` are documented here. This project follows [Semant
 
 Installed copies auto-update on Claude Code startup. To force an update now: `/plugin update wdist@wdist`.
 
+## [0.2.0] - 2026-05-12
+
+### Added
+- Recap output now surfaces GitHub Releases published on the target date. The extractor walks each session's cwd for a `github.com` origin and queries `gh release list`, emitting a top-level `releases` array. Skipped silently if `gh` is unavailable or the cwd has no GitHub remote — the rest of the recap is unaffected.
+- Release flow: `CHANGELOG.md`, `scripts/release.sh`, and a "Releasing" section in `CLAUDE.md`. Installed copies auto-update on Claude Code startup whenever `version` bumps.
+
+### Changed
+- Short-mode format is tighter: 3–7 bullets (down from 3–10), aim for under ~90 characters per bullet, and strip all identifiers (commit hashes, PR numbers, CI run IDs, URLs, branch/file/ticket paths). Identifiers remain in verbose mode where they belong.
+- Synthesis rules in `commands/wdist.md` now split between format-shared and short-only, so the "quote concrete references" rule no longer contradicts short mode.
+
 ## [0.1.0] - 2026-05-06
 
 ### Added
