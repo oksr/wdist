@@ -92,11 +92,15 @@ The output format lives in `commands/wdist.md`. Edit the "Synthesize the recap" 
 
 ## Updates
 
-Installed plugins auto-update on Claude Code startup, so you'll pick up new versions automatically. To force an update right now:
+To pull the latest version:
 
 ```
 /plugin update wdist@wdist
 ```
+
+Or open the `/plugin` UI and pick **Update now** on `wdist`.
+
+To have new versions install automatically on Claude Code startup, open `/plugin` → **Marketplaces** → `wdist` → **Enable auto-update**. Auto-update is off by default for third-party marketplaces, so this is opt-in.
 
 See [CHANGELOG.md](CHANGELOG.md) for what's new in each release.
 

@@ -44,7 +44,14 @@ Constraints to preserve:
 
 ## Releasing
 
-Installed copies of `wdist` auto-update on Claude Code startup. The trigger is `version` in `.claude-plugin/plugin.json` — bumping it ships the new code to every user on their next launch. Don't bump it and commits stay invisible to users.
+The trigger that delivers new code to users is `version` in `.claude-plugin/plugin.json`. Don't bump it and commits stay invisible to users.
+
+How users actually receive a new version depends on whether they've enabled auto-update for the `wdist` marketplace:
+
+- **Auto-update on** (opt-in via `/plugin` → Marketplaces → `wdist` → Enable auto-update) — they get it on their next Claude Code startup.
+- **Auto-update off** (the default for third-party marketplaces) — they get it when they run `/plugin update wdist@wdist` or click "Update now" in the `/plugin` UI.
+
+Either way, the maintainer-side action is the same: bump `version` and tag.
 
 ### Release flow
 

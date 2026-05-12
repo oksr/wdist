@@ -2,7 +2,7 @@
 
 All notable changes to `wdist` are documented here. This project follows [Semantic Versioning](https://semver.org/) and the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
-Installed copies auto-update on Claude Code startup. To force an update now: `/plugin update wdist@wdist`.
+To pull the latest version: `/plugin update wdist@wdist`. Auto-update on Claude Code startup is opt-in — enable it via `/plugin` → Marketplaces → `wdist`.
 
 ## [0.2.0] - 2026-05-12
 
