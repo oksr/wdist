@@ -44,9 +44,38 @@ Constraints to preserve:
 
 ## Releasing
 
-Version lives in **two** places that must stay in sync:
+Installed copies of `wdist` auto-update on Claude Code startup. The trigger is `version` in `.claude-plugin/plugin.json` — bumping it ships the new code to every user on their next launch. Don't bump it and commits stay invisible to users.
 
-- `.claude-plugin/plugin.json` → `version`
-- `.claude-plugin/marketplace.json` → both `metadata.version` and `plugins[0].version`
+### Release flow
 
-After editing the plugin, end users need to `/reload-plugins` (and sometimes restart Claude Code) for the command to pick up changes.
+From a clean `master`:
+
+```bash
+scripts/release.sh <new-version>     # e.g. 0.2.0
+```
+
+The script validates the version shape (`MAJOR.MINOR.PATCH`), bumps `version` in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` (kept in sync — `plugin.json` is what Claude Code actually reads, but humans look at both), and prepends a stub entry to `CHANGELOG.md`. Then by hand:
+
+1. Edit `CHANGELOG.md` to describe what changed.
+2. `git add -A && git commit -m "release: v<new-version>"`
+3. `git tag v<new-version> && git push && git push --tags`
+
+The script does not commit, tag, or push — so you can review the diff and edit the changelog body before publishing.
+
+### Semver rules for this plugin
+
+- **PATCH** (`0.1.0` → `0.1.1`) — bug fixes, README/docs, internal refactors with no behavior change.
+- **MINOR** (`0.1.1` → `0.2.0`) — new features, new fields in the recap JSON, new `/wdist` flags, prompt changes that visibly shift the output.
+- **MAJOR** (`0.x` → `1.0`) — breaking CLI changes, removed flags, changes to `~/claude-recaps/` output paths users may depend on.
+
+When in doubt, bump MINOR — auto-updating users won't notice, but the changelog stays honest.
+
+### Don't
+
+- Don't add a `SessionStart` hook or in-plugin update nag. Auto-update covers it.
+- Don't add network calls from `scripts/recap-day.py` for version checking. Same reason, and it would slow down every `/wdist` invocation.
+- Don't push commits to `master` that aren't intended to ship. Every push is a candidate for the next release.
+
+### After local edits during development
+
+Users running an installed copy get changes via the release flow above. If you're iterating locally and want to test the *installed* plugin (not just running `recap-day.py` directly), run `/reload-plugins` in Claude Code, and sometimes restart Claude Code for the command to pick up changes.

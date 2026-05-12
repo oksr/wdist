@@ -90,6 +90,16 @@ The synthesis prompt instructs Claude to redact obvious sensitive bits (ARNs, te
 
 The output format lives in `commands/wdist.md`. Edit the "Synthesize the recap" section to change tone, structure, or what counts as "shipped" vs. "in progress." The extractor is intentionally dumb - all the editorial logic is in the prompt.
 
+## Updates
+
+Installed plugins auto-update on Claude Code startup, so you'll pick up new versions automatically. To force an update right now:
+
+```
+/plugin update wdist@wdist
+```
+
+See [CHANGELOG.md](CHANGELOG.md) for what's new in each release.
+
 ## License
 
 MIT - see [LICENSE](LICENSE).
