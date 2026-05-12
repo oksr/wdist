@@ -29,24 +29,21 @@ if [[ -n "$(git status --porcelain)" ]]; then
 fi
 
 python3 - "$VERSION" <<'PY'
-import json
 import pathlib
+import re
 import sys
 from datetime import date
 
 version = sys.argv[1]
 today = date.today().isoformat()
 
-plugin_path = pathlib.Path(".claude-plugin/plugin.json")
-plugin = json.loads(plugin_path.read_text())
-plugin["version"] = version
-plugin_path.write_text(json.dumps(plugin, indent=2) + "\n")
-
-market_path = pathlib.Path(".claude-plugin/marketplace.json")
-market = json.loads(market_path.read_text())
-market["metadata"]["version"] = version
-market["plugins"][0]["version"] = version
-market_path.write_text(json.dumps(market, indent=2) + "\n")
+# Regex-based version bumping preserves the original JSON formatting
+# (em-dashes, inline arrays, etc) — a parse+dump round-trip would
+# re-escape unicode and reflow arrays.
+version_re = re.compile(r'("version"\s*:\s*)"[^"]+"')
+for path in [".claude-plugin/plugin.json", ".claude-plugin/marketplace.json"]:
+    p = pathlib.Path(path)
+    p.write_text(version_re.sub(rf'\1"{version}"', p.read_text()))
 
 changelog = pathlib.Path("CHANGELOG.md")
 text = changelog.read_text()
