@@ -15,6 +15,9 @@ day_end_dt = day_start_dt + datetime.timedelta(days=1)
 day_start_iso = day_start_dt.isoformat()
 day_end_iso = day_end_dt.isoformat()
 day_start_epoch = day_start_dt.timestamp()
+# Delivery events (PRs/CI) get a 24h forward grace window (D1): a session today
+# may land its PR tomorrow morning and still belong to today's recap.
+grace_end_iso = (day_end_dt + datetime.timedelta(days=1)).isoformat()
 
 PROJECTS_DIR = os.path.expanduser("~/.claude/projects")
 
@@ -215,7 +218,103 @@ def releases_for_repo(slug, gh_user):
     return out
 
 
+def ci_runs_for_sha(slug, head_sha):
+    """Return GitHub Actions workflow runs for a commit, raw fields only — the prompt
+    rolls these into CI pass/fail/running. [] on missing sha or any gh error (D4).
+
+    No prod/staging flag: GitHub's only structured prod signal is the Environments API,
+    which most repos (incl. wisor) don't configure, and workflow-name heuristics are
+    unreliable ('Deploy to ci' is staging). Deferred to a future Environments-based pass.
+    """
+    if not head_sha:
+        return []
+    try:
+        r = subprocess.run(
+            ["gh", "api", f"repos/{slug}/actions/runs?head_sha={head_sha}&per_page=20"],
+            capture_output=True, text=True, timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if r.returncode != 0:
+        return []
+    try:
+        data = json.loads(r.stdout)
+    except json.JSONDecodeError:
+        return []
+    runs = []
+    for run in data.get("workflow_runs", []):
+        runs.append({
+            "name": run.get("name"),
+            "path": run.get("path"),
+            "status": run.get("status"),
+            "conclusion": run.get("conclusion"),
+            "event": run.get("event"),
+            "url": run.get("html_url"),
+            "updated_at": run.get("updated_at"),
+        })
+    return runs
+
+
+def prs_for_repo(slug, gh_user):
+    """Return PRs in `slug` authored by gh_user whose latest activity falls within
+    the target day window plus the 24h forward grace window (D1). Raw fields only —
+    delivery-state classification is the prompt's job. [] on any gh error (D4).
+
+    Uses `gh pr list --search author:` (server-side author filter) rather than the
+    REST pulls list: on a busy team repo the 30 most-recently-updated PRs across all
+    authors bury the user's own older PRs past the page limit, silently dropping them.
+    """
+    try:
+        r = subprocess.run(
+            ["gh", "pr", "list", "--repo", slug, "--state", "all", "--limit", "30",
+             "--search", f"author:{gh_user} sort:updated-desc",
+             "--json", "number,title,state,createdAt,updatedAt,closedAt,mergedAt,"
+                       "url,headRefName,headRefOid,baseRefName,isDraft"],
+            capture_output=True, text=True, timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if r.returncode != 0:
+        return []
+    try:
+        data = json.loads(r.stdout)
+    except json.JSONDecodeError:
+        return []
+    out = []
+    for pr in data:
+        upd = pr.get("updatedAt") or ""
+        upd_norm = upd[:-1] if upd.endswith("Z") else upd
+        # Sorted newest-activity-first: once we fall below the window start,
+        # nothing remaining can be in-window.
+        if upd_norm and upd_norm < day_start_iso:
+            break
+        if not (day_start_iso <= upd_norm < grace_end_iso):
+            continue
+        merged_at = pr.get("mergedAt")
+        head_sha = pr.get("headRefOid")
+        out.append({
+            "repo": slug,
+            "number": pr.get("number"),
+            "title": pr.get("title") or "",
+            "state": (pr.get("state") or "").lower(),
+            "merged": bool(merged_at),
+            "draft": bool(pr.get("isDraft")),
+            "created_at": pr.get("createdAt"),
+            "merged_at": merged_at,
+            "closed_at": pr.get("closedAt"),
+            "updated_at": pr.get("updatedAt"),
+            "url": pr.get("url"),
+            "head_ref": pr.get("headRefName"),
+            "head_sha": head_sha,
+            "base_ref": pr.get("baseRefName"),
+            "author": gh_user,
+            "ci": ci_runs_for_sha(slug, head_sha),
+        })
+    return out
+
+
 releases = []
+delivery = []
 gh_user = current_gh_user()
 if gh_user:
     seen_repos = set()
@@ -225,10 +324,13 @@ if gh_user:
             continue
         seen_repos.add(slug)
         releases.extend(releases_for_repo(slug, gh_user))
+        delivery.extend(prs_for_repo(slug, gh_user))
 
 releases.sort(key=lambda r: r.get("published_at") or "")
+delivery.sort(key=lambda p: (p.get("repo") or "", p.get("updated_at") or ""))
 
 print(json.dumps(
-    {"date": DATE, "count": len(sessions), "sessions": sessions, "releases": releases},
+    {"date": DATE, "count": len(sessions), "sessions": sessions,
+     "releases": releases, "delivery": delivery},
     indent=2, ensure_ascii=False,
 ))
