@@ -4,6 +4,19 @@ All notable changes to `wdist` are documented here. This project follows [Semant
 
 To pull the latest version: `/plugin update wdist@wdist`. Auto-update on Claude Code startup is opt-in — enable it via `/plugin` → Marketplaces → `wdist`.
 
+## [0.3.0] - 2026-05-28
+
+### Added
+- **Delivery state.** The recap now answers "did it ship?", not just "what did I do?". The extractor emits a top-level `delivery` array of pull requests **personally authored by the current `gh` user** (server-side author filter), touched on the target date plus a 24-hour forward grace window — so a PR you open today and merge tomorrow morning still counts toward today. Teammates' and bots' PRs are filtered out.
+- Each delivery entry carries the PR's `state` / `merged` flag, timestamps, branch, and a `ci` array of the GitHub Actions runs on its head commit (`status` + `conclusion`).
+- `commands/wdist.md` classifies each outcome by delivery state — **merged**, **PR open**, **CI failed**, **local-only**, or **released** — with inline `(merged)` / `(PR open)` / `(CI failed)` markers in short mode and a Shipped/In-progress split in verbose. CI is reported as pass/fail/running only; there is no prod/"shipped to prod" marker yet.
+
+### Changed
+- Short-mode TL;DR may end with a brief delivery clause (e.g. "2 merged, 1 in review"); markers count toward the ~90-char bullet budget. On a local-only day the recap reads exactly as it did before — no markers, no clause.
+
+### Notes
+- Requires `gh` installed and authenticated for delivery state. Without it, `delivery` is empty and every outcome is treated as local-only — the recap degrades gracefully, never errors.
+
 ## [0.2.0] - 2026-05-12
 
 ### Added

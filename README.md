@@ -2,17 +2,19 @@
 
 A Claude Code plugin that generates a shareable daily recap of your Claude Code sessions. The default output is short and Slack-friendly — a few bullets you can paste straight into a DM with your manager or team lead. Pass `--verbose` when you want the full report.
 
+**New in v0.3.0 — delivery state.** The recap now answers *did it ship?*, not just *what did I do?*. Each outcome is tagged with where it landed — `(merged)`, `(PR open)`, `(CI failed)`, or nothing for local-only — by reading the pull requests **you** authored that day (plus the GitHub Releases you cut). Needs the GitHub CLI (`gh`); degrades gracefully to local-only without it. See the [CHANGELOG](CHANGELOG.md).
+
 ## What you get
 
 Run `/wdist` at the end of the day and Claude reads every session you ran today (across every project), groups them by outcome, and produces something shaped like this (fictional example):
 
 ```
 *What I shipped — 2026-04-15 (Wednesday)*
-Mostly cart-checkout work — landed the new tax calculator, fixed two address-form regressions, unblocked mobile on the payment SDK.
+Mostly cart-checkout work — tax calculator and address-form fixes landed, payment SDK unblocked for mobile. *2 merged, 1 in review.*
 
-• *Tax calculator v2* — committed `1a2b3c4`, handles the EU VAT cases the old lookup rounded wrong.
-• *Address form regression* — PR #482, Safari autocomplete was eating the first character.
-• *Payment SDK upgrade unblocked for mobile* — migration notes published, mobile can pick up 4.x.
+• *Tax calculator v2* (merged) — handles the EU VAT cases the old lookup rounded wrong.
+• *Address form regression* (merged) — Safari autocomplete was eating the first character.
+• *Payment SDK upgrade unblocked for mobile* (PR open) — migration notes published, mobile can pick up 4.x.
 
 _In progress:_ checkout funnel A/B — variant assignment isn't reading the cookie correctly yet.
 ```
@@ -28,17 +30,17 @@ on the payment SDK upgrade.
 
 ## Shipped
 
-- **Tax calculator v2** - committed `1a2b3c4`; replaces the legacy
+- **Tax calculator v2** (merged) - committed `1a2b3c4`; replaces the legacy
   rate-table lookup with the new vendor SDK. Handles the EU VAT cases the
   old one was rounding wrong.
-- **Address form regression fix** - PR #482, the autocomplete dropdown
+- **Address form regression fix** (merged) - PR #482, the autocomplete dropdown
   was eating the first character on Safari.
 - **Payment SDK upgrade unblocked for mobile** - published the migration
   notes to the team wiki; mobile can pick up `4.x` now.
 
 ## In progress
 
-- **Checkout funnel A/B** - wiring still mid-flight; test harness done
+- **Checkout funnel A/B** (PR open) - wiring still mid-flight; test harness done
   but the variant assignment isn't reading the cookie correctly yet.
 
 ## Notes & followups
@@ -77,6 +79,8 @@ Restart Claude Code if the command doesn't show up immediately after /reload-plu
 Claude Code stores per-session JSONL transcripts at `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`. The plugin's extractor walks those files, filters to records with timestamps inside the target date (so continued multi-day sessions don't pollute the result), and emits a compact JSON document. The `/wdist` command then asks Claude to synthesize it into the format above.
 
 The extractor is dependency-free Python 3 - no `pip install` needed.
+
+Delivery state (PR + CI status and GitHub Releases) needs the GitHub CLI (`gh`) installed and authenticated, and queries only the PRs and releases **you** authored. Without `gh` — or for sessions in a non-GitHub repo — that signal is simply omitted and the recap falls back to local session activity, never erroring.
 
 ## What gets read vs. shared
 
