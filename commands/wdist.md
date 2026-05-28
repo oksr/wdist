@@ -8,34 +8,62 @@ transcripts. The recap is intended to be **pasted into Slack** for a
 manager, team lead, or colleague — so write it for a human reader, not a
 log dump.
 
-## Step 1 — Parse arguments and extract data
+## Step 1 — Parse arguments, resolve dates, extract data
 
-`$ARGUMENTS` may contain a date (`YYYY-MM-DD`), a `--verbose` flag, both,
-or neither. Default mode is **short** (Slack-friendly). `--verbose`
-switches to the long form.
+`$ARGUMENTS` may contain a `--verbose` flag and an optional date expression:
+nothing (= today), a single ISO date (`2026-05-15`), a relative phrase
+(`yesterday`, `this week`, `last week`, `this month`, `last month` / `monthly`),
+or an explicit range (`2026-05-05 to 2026-05-10`). Default mode is **short**
+(Slack-friendly); `--verbose` switches to the long form.
 
-Run the extractor:
+Resolve the date expression to a concrete `START` and `END` (both `YYYY-MM-DD`,
+inclusive — equal for a single day). First print today's calendar anchors. This
+gets month lengths and leap years right and is portable across macOS/Linux —
+**don't compute month/week boundaries by hand:**
 
 ```bash
 mkdir -p ~/claude-recaps
-ARGS="$ARGUMENTS"
-VERBOSE=0
-DATE=""
-for tok in $ARGS; do
-  case "$tok" in
-    --verbose|-v) VERBOSE=1 ;;
-    *) DATE="$tok" ;;
-  esac
-done
-DATE="${DATE:-$(date +%F)}"
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/recap-day.py" "$DATE" > "/tmp/recap-${DATE}.json"
-echo "VERBOSE=$VERBOSE DATE=$DATE"
+python3 - <<'PY'
+import datetime
+t = datetime.date.today()
+mon = t - datetime.timedelta(days=t.weekday())          # Monday of this week
+this_month = t.replace(day=1)
+lm_end = this_month - datetime.timedelta(days=1)         # last day of last month
+print("today      ", t, t)
+print("yesterday  ", t - datetime.timedelta(days=1), t - datetime.timedelta(days=1))
+print("this_week  ", mon, t)
+print("last_week  ", mon - datetime.timedelta(days=7), mon - datetime.timedelta(days=1))
+print("this_month ", this_month, t)
+print("last_month ", lm_end.replace(day=1), lm_end)
+PY
 ```
 
-Then read `/tmp/recap-${DATE}.json`. It contains a `sessions` array (one
-entry per session with activity on the target date) and a `releases`
-array (GitHub releases **personally authored by the current `gh` user**
-on the target date, in repos a session ran in — CI-bot releases and
+Map `$ARGUMENTS` to START/END using those anchor rows (calendar-aligned):
+
+- nothing / `today` → today; `yesterday` → yesterday
+- a single ISO date → that date (START == END)
+- `this week` / `last week` / `this month` / `last month` (a.k.a. `monthly`) →
+  the matching anchor row
+- `X to Y` (two ISO dates, separated by `to`, `..`, or `-`) → X through Y
+- any other span (e.g. `last 2 weeks`, `last 30 days`) → compute it with a
+  one-line `python3 -c`, never by hand
+
+`monthly` is a one-shot recap of the previous calendar month — not a recurring
+schedule. Then run the extractor with the resolved literal dates:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/recap-day.py" START END > "/tmp/recap-START_to_END.json"
+```
+
+substituting the actual dates (e.g. `... 2026-05-19 2026-05-25 > /tmp/recap-2026-05-19_to_2026-05-25.json`).
+For a single day `START == END` and the result matches prior single-date
+behavior. Note whether `--verbose` was in `$ARGUMENTS`.
+
+Then read the JSON file you just wrote. Its `start` / `end` fields bound the
+recap (equal for a single day; see Step 2 for the single-day vs range split). It
+contains a `sessions` array (one entry per session with activity in the range)
+and a `releases` array (GitHub releases **personally authored by the current
+`gh` user** in the range, in repos a session ran in — CI-bot releases and
 teammates' releases are filtered out).
 
 Per session:
@@ -87,9 +115,24 @@ teammates'/bots' PRs in the relevant repos. **When it's empty, classify
 every outcome as local-only and don't mention PR or CI state at all** —
 the recap reads exactly as it did before delivery state existed.
 
+The JSON also contains a `history` array: lightweight activity recovered from
+Claude Code's long-lived global prompt log for days whose **per-session
+transcripts have been cleaned up** (Claude Code deletes transcripts older than
+`cleanupPeriodDays`, default 30). Each entry — `{cwd, date, prompts, count}` —
+is one project on one day with the prompts you typed, but **no titles or
+assistant output**, so it's thinner than a `sessions` entry. It's populated only
+for ranges that reach past the retention window; recent ranges and single days
+have an empty `history` (their `sessions` are complete). Delivery state for these
+days is still in `delivery` (gh isn't retention-bound), so a cleaned day can
+still show what shipped.
+
 ## Step 2 — Synthesize the recap
 
-Pick the format based on `VERBOSE`.
+First decide the span. If the JSON's `start` equals `end`, this is a **single
+day** — use the short/verbose formats immediately below. If `start` and `end`
+differ, it's a **date range** (a week, month, or custom span) — use the
+**Multi-day format** further down. Within either, pick short (default) vs
+verbose from `VERBOSE`.
 
 ### Short format (default — for Slack)
 
@@ -184,6 +227,76 @@ transcripts; references and commit hashes pulled from session output and
 should be verified before quoting externally._
 ```
 
+### Multi-day format (date ranges)
+
+Used when `start != end` (e.g. `/wdist last week`, `/wdist 2026-05-05 to
+2026-05-10`). The delivery-state classification and redaction rules are
+unchanged (synthesis rules 5 and 6) — only the shape changes: you're
+synthesizing a span, not a day.
+
+Core moves:
+
+1. **Synthesize into themes, not a daily log.** Collapse every session in the
+   span into the handful of threads that actually moved. A thread that spanned
+   Mon–Thu is ONE bullet, not four. The reader wants "what got done", not a replay.
+2. **Roll delivery state up to the terminal state per theme** across the whole
+   span (precedence from rule 5: merged > CI failed > PR open > local-only). A
+   theme whose PR opened Tuesday and merged Friday is `(merged)`.
+3. **Split into Shipped vs Still-moving.** Landed work (merged, released, or
+   committed-and-done) goes under *Shipped*; work that's still open, CI-red, or
+   mid-flight **as of the end of the range** goes under *Still moving*.
+4. **Flat across projects, tag inline.** One Shipped / Still-moving list across
+   all repos; note the project on a bullet only where it adds clarity
+   (`— mobile`). Don't break into per-project blocks.
+5. **Lead the TL;DR with the delivery tally.** One thematic clause + the span's
+   tally — the tally is the headline for a range, so always include it.
+6. **For long spans, surface the top themes and roll up the tail.** A month can
+   have 20+ threads; lead with the most significant in full, then collapse the
+   rest into one line. Keep it scannable.
+7. **Period header.** Title the recap with the span in human form: "week of
+   May 26–30", "May 2026", "May 5–10".
+8. **Reconstructed (older) days.** `history` entries are days past transcript
+   retention — synthesize them from their `prompts` plus the durable `delivery`
+   state (joined by repo) as real work, but **don't fabricate outcomes you can't
+   see**: with no assistant narrative, describe what was *worked on* (from the
+   prompts) and what *shipped* (from delivery), and skip confident "fixed/landed
+   X" phrasing unless delivery confirms it. If a span mixes rich and
+   reconstructed days, add a light note — e.g. _"(earlier weeks reconstructed
+   from prompt history; full transcripts past retention)"_ — so the reader knows
+   the older detail is thinner.
+
+#### Short (default)
+
+```markdown
+*What I shipped — {period header}*
+{One thematic clause} *{tally — e.g. "6 merged, 2 in review, 1 released"}.*
+
+*Shipped*
+• *{Theme}* ({merged} | {released}) — {one short clause}{ — project if useful}.
+• ...
+
+*Still moving*
+• *{Theme}* ({PR open} | {CI failed}) — {where it stands}.
+• ...
+_+ {N} smaller fixes across {projects}._   ← only when a long span has a rolled-up tail
+```
+
+The short-format *style* rules still apply (Slack bold, ~90-char bullets, strip
+identifiers, markers are states not identifiers) — but **not** the single-day
+3–7 bullet cap; a span should be as complete as it is scannable. List every
+theme that shipped or is materially in flight, folding only minor/routine items
+into the rolled-up tail. Soft ceiling: up to ~10 bullets for a week, ~15 for a
+month, then roll up the rest. Drop *Still moving* if nothing is mid-flight; drop
+the tail line unless there is one.
+
+#### Verbose (`--verbose`)
+
+Same structure as the single-day verbose report — `## Shipped` (with the
+`### Released` subsection), `## In progress`, `## Notes & followups`, and the
+footer — but theme-grouped across the span, and the footer names the period and
+the project list. Identifiers (PR #, commit, run IDs) are allowed and encouraged
+where present in the source, same as synthesis rule 3.
+
 ### Synthesis rules
 
 These apply to both formats unless a rule explicitly scopes itself.
@@ -255,14 +368,14 @@ These apply to both formats unless a rule explicitly scopes itself.
 
 ## Step 3 — Write the file and report
 
-Write the synthesized markdown to `~/claude-recaps/{DATE}.md` (overwrite
-if it exists — re-runs are expected). Both formats write to the same
-path; re-running with `--verbose` replaces the short version and vice
-versa.
+Write the synthesized markdown to `~/claude-recaps/{LABEL}.md`, where `{LABEL}`
+is the date for a single day or `{START}_to_{END}` for a range (overwrite if it
+exists — re-runs are expected). Both formats write to the same path; re-running
+with `--verbose` replaces the short version and vice versa.
 
 Then in your final reply to the user:
 
-1. Print a one-line summary: `Recap for {DATE} written to ~/claude-recaps/{DATE}.md ({N} sessions{, verbose if applicable}).`
+1. Print a one-line summary: `Recap for {LABEL} written to ~/claude-recaps/{LABEL}.md ({N} sessions{, verbose if applicable}).`
 2. Show the rendered markdown inline so they can copy directly without
    opening the file.
 3. Do not narrate the steps you took — just deliver the recap.

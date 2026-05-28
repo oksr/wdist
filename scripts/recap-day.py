@@ -1,23 +1,30 @@
 #!/usr/bin/env python3
-"""Extract a compact JSON recap of Claude Code sessions for a given date.
+"""Extract a compact JSON recap of Claude Code sessions for a date or range.
 
-Usage: recap-day.py [YYYY-MM-DD]   (defaults to today, local time)
+Usage: recap-day.py [START [END]]   (defaults to today; END defaults to START,
+local time). START/END are YYYY-MM-DD and the range is inclusive.
 
 Reads ~/.claude/projects/*/*.jsonl (top-level session files only — skips
 subagent transcripts) and emits a JSON document with one entry per session
-that contained activity on the target date.
+that contained activity within the target date range.
 """
 import json, os, sys, glob, datetime, subprocess, re
 
-DATE = sys.argv[1] if len(sys.argv) > 1 else datetime.date.today().isoformat()
-day_start_dt = datetime.datetime.fromisoformat(DATE + "T00:00:00")
-day_end_dt = day_start_dt + datetime.timedelta(days=1)
-day_start_iso = day_start_dt.isoformat()
-day_end_iso = day_end_dt.isoformat()
-day_start_epoch = day_start_dt.timestamp()
-# Delivery events (PRs/CI) get a 24h forward grace window (D1): a session today
-# may land its PR tomorrow morning and still belong to today's recap.
-grace_end_iso = (day_end_dt + datetime.timedelta(days=1)).isoformat()
+# Accept a single date or an inclusive START END range. END defaults to START,
+# so `recap-day.py YYYY-MM-DD` (or no arg = today) behaves exactly as before.
+START = sys.argv[1] if len(sys.argv) > 1 else datetime.date.today().isoformat()
+END = sys.argv[2] if len(sys.argv) > 2 else START
+range_start_dt = datetime.datetime.fromisoformat(START + "T00:00:00")
+# Exclusive end: midnight after the last day in the range.
+range_end_dt = datetime.datetime.fromisoformat(END + "T00:00:00") + datetime.timedelta(days=1)
+if range_end_dt <= range_start_dt:
+    sys.exit(f"END ({END}) must be on or after START ({START})")
+range_start_iso = range_start_dt.isoformat()
+range_end_iso = range_end_dt.isoformat()
+range_start_epoch = range_start_dt.timestamp()
+# Delivery events (PRs/CI) get a 24h forward grace window (D1): work in the range
+# may land its PR the next morning and still belong to this recap.
+grace_end_iso = (range_end_dt + datetime.timedelta(days=1)).isoformat()
 
 PROJECTS_DIR = os.path.expanduser("~/.claude/projects")
 
@@ -53,14 +60,14 @@ def summarize_session(path):
     title = None
     cwd = None
     session_id = None
-    first_user_today = None
-    last_user_today = None
-    last_assistant_today = None
-    user_turns_today = 0
-    assistant_turns_today = 0
-    first_ts_today = None
-    last_ts_today = None
-    user_msgs_today = []
+    first_user_in_range = None
+    last_user_in_range = None
+    last_assistant_in_range = None
+    user_turns_in_range = 0
+    assistant_turns_in_range = 0
+    first_ts_in_range = None
+    last_ts_in_range = None
+    user_msgs_in_range = []
 
     with open(path) as f:
         for line in f:
@@ -71,7 +78,7 @@ def summarize_session(path):
             t = d.get("type")
             ts = d.get("timestamp")
             # Strip trailing 'Z' so timestamps compare lexicographically against
-            # the naive ISO day window (cheaper than parsing each line).
+            # the naive ISO window (cheaper than parsing each line).
             ts_norm = ts[:-1] if ts and ts.endswith("Z") else ts
 
             if d.get("cwd") and not cwd:
@@ -81,53 +88,53 @@ def summarize_session(path):
             if t == "ai-title":
                 title = d.get("aiTitle") or title
 
-            if not ts_norm or not (day_start_iso <= ts_norm < day_end_iso):
+            if not ts_norm or not (range_start_iso <= ts_norm < range_end_iso):
                 # JSONL transcripts are append-only chronological; once we've
-                # entered and exited the day window, the rest can't contribute.
-                if first_ts_today is not None and ts_norm and ts_norm >= day_end_iso:
+                # entered and exited the window, the rest can't contribute.
+                if first_ts_in_range is not None and ts_norm and ts_norm >= range_end_iso:
                     break
                 continue
 
-            if first_ts_today is None or ts < first_ts_today:
-                first_ts_today = ts
-            if last_ts_today is None or ts > last_ts_today:
-                last_ts_today = ts
+            if first_ts_in_range is None or ts < first_ts_in_range:
+                first_ts_in_range = ts
+            if last_ts_in_range is None or ts > last_ts_in_range:
+                last_ts_in_range = ts
 
             if t == "user":
                 msg = d.get("message", {})
                 if isinstance(msg, dict):
                     text = extract_text(msg.get("content", ""))
                     if not is_meta_user(text):
-                        user_turns_today += 1
+                        user_turns_in_range += 1
                         text = text.strip()
-                        if first_user_today is None:
-                            first_user_today = text
-                        last_user_today = text
-                        if len(user_msgs_today) < 20:
-                            user_msgs_today.append(text[:400])
+                        if first_user_in_range is None:
+                            first_user_in_range = text
+                        last_user_in_range = text
+                        if len(user_msgs_in_range) < 20:
+                            user_msgs_in_range.append(text[:400])
             elif t == "assistant":
                 msg = d.get("message", {})
                 if isinstance(msg, dict):
                     text = extract_text(msg.get("content", ""))
                     if text.strip():
-                        assistant_turns_today += 1
-                        last_assistant_today = text.strip()
+                        assistant_turns_in_range += 1
+                        last_assistant_in_range = text.strip()
 
-    if first_ts_today is None:
+    if first_ts_in_range is None:
         return None
 
     return {
         "session_id": session_id,
         "cwd": cwd,
         "title": title,
-        "start": first_ts_today,
-        "end": last_ts_today,
-        "user_turns": user_turns_today,
-        "assistant_turns": assistant_turns_today,
-        "first_user": (first_user_today or "")[:800],
-        "last_user": (last_user_today or "")[:400],
-        "last_assistant": (last_assistant_today or "")[:800],
-        "user_prompts": user_msgs_today,
+        "start": first_ts_in_range,
+        "end": last_ts_in_range,
+        "user_turns": user_turns_in_range,
+        "assistant_turns": assistant_turns_in_range,
+        "first_user": (first_user_in_range or "")[:800],
+        "last_user": (last_user_in_range or "")[:400],
+        "last_assistant": (last_assistant_in_range or "")[:800],
+        "user_prompts": user_msgs_in_range,
     }
 
 
@@ -136,7 +143,7 @@ for project_dir in sorted(glob.glob(os.path.join(PROJECTS_DIR, "*"))):
     if not os.path.isdir(project_dir):
         continue
     for jsonl in glob.glob(os.path.join(project_dir, "*.jsonl")):
-        if os.path.getmtime(jsonl) < day_start_epoch:
+        if os.path.getmtime(jsonl) < range_start_epoch:
             continue
         s = summarize_session(jsonl)
         if s:
@@ -203,7 +210,7 @@ def releases_for_repo(slug, gh_user):
             continue
         pub = rel.get("published_at") or ""
         pub_norm = pub[:-1] if pub.endswith("Z") else pub
-        if not (day_start_iso <= pub_norm < day_end_iso):
+        if not (range_start_iso <= pub_norm < range_end_iso):
             continue
         tag = rel.get("tag_name") or ""
         out.append({
@@ -257,7 +264,7 @@ def ci_runs_for_sha(slug, head_sha):
 
 def prs_for_repo(slug, gh_user):
     """Return PRs in `slug` authored by gh_user whose latest activity falls within
-    the target day window plus the 24h forward grace window (D1). Raw fields only —
+    the target window plus the 24h forward grace window (D1). Raw fields only —
     delivery-state classification is the prompt's job. [] on any gh error (D4).
 
     Uses `gh pr list --search author:` (server-side author filter) rather than the
@@ -286,9 +293,9 @@ def prs_for_repo(slug, gh_user):
         upd_norm = upd[:-1] if upd.endswith("Z") else upd
         # Sorted newest-activity-first: once we fall below the window start,
         # nothing remaining can be in-window.
-        if upd_norm and upd_norm < day_start_iso:
+        if upd_norm and upd_norm < range_start_iso:
             break
-        if not (day_start_iso <= upd_norm < grace_end_iso):
+        if not (range_start_iso <= upd_norm < grace_end_iso):
             continue
         merged_at = pr.get("mergedAt")
         head_sha = pr.get("headRefOid")
@@ -313,13 +320,94 @@ def prs_for_repo(slug, gh_user):
     return out
 
 
+def load_history_backfill(covered, path=None):
+    """Surface lightweight activity from the long-lived global prompt log
+    (~/.claude/history.jsonl) for (cwd, date) pairs in range that have NO
+    per-session transcript — days whose transcripts were deleted by the
+    `cleanupPeriodDays` retention. Returns [{cwd, date, prompts, count}] grouped
+    by (cwd, date); slash-commands / meta prompts are dropped. [] if absent.
+
+    The log records {display, project, timestamp} and outlives transcripts, so it
+    backfills cleaned days. The rich narrative (titles, assistant output) is gone,
+    but delivery state for those days is still recoverable live from gh.
+    """
+    path = path or os.path.expanduser("~/.claude/history.jsonl")
+    if not os.path.exists(path):
+        return []
+    by_key = {}
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    d = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                ts = d.get("timestamp")
+                proj = d.get("project")
+                disp = (d.get("display") or "").strip()
+                if not ts or not proj or not disp or disp.startswith("/"):
+                    continue  # missing fields, or a slash-command / meta entry
+                try:
+                    secs = ts / 1000 if ts > 1e11 else ts
+                    when = datetime.datetime.fromtimestamp(secs)
+                except (OverflowError, OSError, ValueError):
+                    continue
+                if not (range_start_iso <= when.isoformat() < range_end_iso):
+                    continue
+                date_str = when.date().isoformat()
+                if (proj, date_str) in covered:
+                    continue  # a transcript already covers this cwd + day
+                by_key.setdefault((proj, date_str), []).append(disp[:400])
+    except OSError:
+        return []
+    out = [
+        {"cwd": proj, "date": date_str, "prompts": prompts[:20], "count": len(prompts)}
+        for (proj, date_str), prompts in by_key.items()
+    ]
+    out.sort(key=lambda h: (h["date"], h["cwd"]))
+    return out
+
+
+# (cwd, date) pairs already covered by a rich transcript — don't backfill those.
+covered = set()
+for s in sessions:
+    cwd = s.get("cwd")
+    start = s.get("start")
+    if not cwd or not start:
+        continue
+    try:
+        a = datetime.date.fromisoformat(start[:10])
+        b = datetime.date.fromisoformat((s.get("end") or start)[:10])
+    except ValueError:
+        covered.add((cwd, start[:10]))
+        continue
+    cur = a
+    while cur <= b:
+        covered.add((cwd, cur.isoformat()))
+        cur += datetime.timedelta(days=1)
+
+history = load_history_backfill(covered)
+
+# Collect repos from transcript sessions AND history-backfilled days, so cleaned
+# days still get their (durable, gh-sourced) PR/CI/release delivery state.
+cwds = []
+seen_cwd = set()
+for item in sessions + history:
+    c = item.get("cwd")
+    if c and c not in seen_cwd:
+        seen_cwd.add(c)
+        cwds.append(c)
+
 releases = []
 delivery = []
 gh_user = current_gh_user()
 if gh_user:
     seen_repos = set()
-    for s in sessions:
-        slug = repo_slug_for_cwd(s.get("cwd"))
+    for c in cwds:
+        slug = repo_slug_for_cwd(c)
         if not slug or slug in seen_repos:
             continue
         seen_repos.add(slug)
@@ -330,7 +418,10 @@ releases.sort(key=lambda r: r.get("published_at") or "")
 delivery.sort(key=lambda p: (p.get("repo") or "", p.get("updated_at") or ""))
 
 print(json.dumps(
-    {"date": DATE, "count": len(sessions), "sessions": sessions,
+    {"date": START if START == END else f"{START}..{END}",
+     "start": START, "end": END,
+     "count": len(sessions), "sessions": sessions,
+     "history": history,
      "releases": releases, "delivery": delivery},
     indent=2, ensure_ascii=False,
 ))
