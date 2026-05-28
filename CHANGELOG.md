@@ -4,6 +4,17 @@ All notable changes to `wdist` are documented here. This project follows [Semant
 
 To pull the latest version: `/plugin update wdist@wdist`. Auto-update on Claude Code startup is opt-in — enable it via `/plugin` → Marketplaces → `wdist`.
 
+## [0.4.0] - 2026-05-28
+
+### Added
+- **Date ranges and natural-language dates.** Beyond a single day, `/wdist` now accepts `yesterday`, `this week`, `last week`, `this month`, `last month` (a.k.a. `monthly`), and explicit ranges like `2026-05-05 to 2026-05-10`. Relative phrases resolve calendar-aligned (`last week` = previous Mon–Sun; `last month` = previous full calendar month). `recap-day.py` takes an inclusive `START [END]`; single-day behavior is unchanged.
+- **Multi-day format.** A week or month is synthesized into themes (not a daily log) with the terminal delivery state per theme, split into Shipped vs Still-moving, a TL;DR led by the delivery tally, and — for long spans — the top themes in full with the minor tail rolled up.
+- **History backfill past retention.** Claude Code deletes per-session transcripts older than `cleanupPeriodDays` (default 30). For ranges that reach further back, wdist reconstructs those days from the long-lived `~/.claude/history.jsonl` prompt log (a `history` array: project + prompts per day) combined with **live GitHub delivery** (PRs/CI/releases aren't retention-bound). Reconstructed days are thinner — what was worked on + what shipped — and marked as such.
+
+### Notes
+- Reconstructed days carry no titles or assistant narrative, only your prompts + delivery state. To keep more full transcripts going forward, raise `cleanupPeriodDays` in `~/.claude/settings.json`.
+- Range recaps are written to `~/claude-recaps/{START}_to_{END}.md`.
+
 ## [0.3.0] - 2026-05-28
 
 ### Added

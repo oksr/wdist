@@ -2,7 +2,9 @@
 
 A Claude Code plugin that generates a shareable daily recap of your Claude Code sessions. The default output is short and Slack-friendly — a few bullets you can paste straight into a DM with your manager or team lead. Pass `--verbose` when you want the full report.
 
-**New in v0.3.0 — delivery state.** The recap now answers *did it ship?*, not just *what did I do?*. Each outcome is tagged with where it landed — `(merged)`, `(PR open)`, `(CI failed)`, or nothing for local-only — by reading the pull requests **you** authored that day (plus the GitHub Releases you cut). Needs the GitHub CLI (`gh`); degrades gracefully to local-only without it. See the [CHANGELOG](CHANGELOG.md).
+**New in v0.4.0 — date ranges + work memory.** Recap any span, not just a day: `/wdist last week`, `/wdist last month`, `/wdist 2026-05-05 to 2026-05-10`. Ranges that reach past Claude Code's ~30-day transcript cleanup are reconstructed from its long-lived prompt log plus live GitHub delivery, so your history goes back months.
+
+v0.3.0 added **delivery state** — each item is tagged `(merged)` / `(PR open)` / `(CI failed)` (or nothing for local-only) by reading the pull requests **you** authored and the releases you cut, so the recap answers *did it ship?*. Needs the GitHub CLI (`gh`); degrades gracefully without it. See the [CHANGELOG](CHANGELOG.md).
 
 ## What you get
 
@@ -69,9 +71,11 @@ Restart Claude Code if the command doesn't show up immediately after /reload-plu
 
 ```
 /wdist                            # short Slack-friendly recap of today
-/wdist 2026-04-15                 # short recap of a specific date
-/wdist --verbose                  # full structured report for today
-/wdist 2026-04-15 --verbose       # full report for a specific date
+/wdist yesterday                  # natural-language relative dates
+/wdist 2026-04-15                 # a specific date
+/wdist last week                  # calendar-aligned ranges (also: this week, last month)
+/wdist 2026-05-05 to 2026-05-10   # an explicit range
+/wdist --verbose                  # full structured report (works with any of the above)
 ```
 
 ## How it works
@@ -81,6 +85,8 @@ Claude Code stores per-session JSONL transcripts at `~/.claude/projects/<encoded
 The extractor is dependency-free Python 3 - no `pip install` needed.
 
 Delivery state (PR + CI status and GitHub Releases) needs the GitHub CLI (`gh`) installed and authenticated, and queries only the PRs and releases **you** authored. Without `gh` — or for sessions in a non-GitHub repo — that signal is simply omitted and the recap falls back to local session activity, never erroring.
+
+For multi-day ranges, wdist also reads Claude Code's long-lived prompt log (`~/.claude/history.jsonl`) to reconstruct days whose full transcripts have aged out — Claude Code deletes per-session transcripts older than `cleanupPeriodDays` (default 30 days). Reconstructed days are thinner: your prompts plus what shipped (from `gh`), without the full narrative. To retain more complete history going forward, raise `cleanupPeriodDays` in `~/.claude/settings.json`.
 
 ## What gets read vs. shared
 
