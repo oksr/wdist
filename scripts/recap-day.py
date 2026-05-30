@@ -21,12 +21,22 @@ if range_end_dt <= range_start_dt:
     sys.exit(f"END ({END}) must be on or after START ({START})")
 range_start_iso = range_start_dt.isoformat()
 range_end_iso = range_end_dt.isoformat()
+# Epoch bounds for the history-backfill scan. That log carries real epoch
+# timestamps, so it filters and early-breaks on epoch seconds — strictly
+# monotonic even across a DST fall-back, where local-time ISO strings repeat
+# an hour and would break the chronological early-exit.
 range_start_epoch = range_start_dt.timestamp()
+range_end_epoch = range_end_dt.timestamp()
 # Delivery events (PRs/CI) get a 24h forward grace window (D1): work in the range
 # may land its PR the next morning and still belong to this recap.
 grace_end_iso = (range_end_dt + datetime.timedelta(days=1)).isoformat()
 
 PROJECTS_DIR = os.path.expanduser("~/.claude/projects")
+
+# Prompt-collection limits, shared by the transcript and history-backfill paths so
+# the two prompt lists (which feed the same recap prompt) stay in sync.
+MAX_PROMPTS = 20        # cap on prompts collected per session / backfilled day
+MAX_PROMPT_CHARS = 400  # per-prompt truncation
 
 
 def extract_text(content):
@@ -110,8 +120,8 @@ def summarize_session(path):
                         if first_user_in_range is None:
                             first_user_in_range = text
                         last_user_in_range = text
-                        if len(user_msgs_in_range) < 20:
-                            user_msgs_in_range.append(text[:400])
+                        if len(user_msgs_in_range) < MAX_PROMPTS:
+                            user_msgs_in_range.append(text[:MAX_PROMPT_CHARS])
             elif t == "assistant":
                 msg = d.get("message", {})
                 if isinstance(msg, dict):
@@ -335,6 +345,7 @@ def load_history_backfill(covered, path=None):
     if not os.path.exists(path):
         return []
     by_key = {}
+    entered = False  # have we reached an in-range entry yet?
     try:
         with open(path) as f:
             for line in f:
@@ -350,21 +361,30 @@ def load_history_backfill(covered, path=None):
                 disp = (d.get("display") or "").strip()
                 if not ts or not proj or not disp or disp.startswith("/"):
                     continue  # missing fields, or a slash-command / meta entry
+                secs = ts / 1000 if ts > 1e11 else ts
+                # The log is append-only chronological: once we've entered and
+                # exited the window, nothing further can contribute (mirrors the
+                # session-transcript scan). Compare on epoch seconds, which stay
+                # monotonic across a DST fall-back unlike local-time ISO strings.
+                if secs >= range_end_epoch:
+                    if entered:
+                        break
+                    continue
+                if secs < range_start_epoch:
+                    continue
                 try:
-                    secs = ts / 1000 if ts > 1e11 else ts
                     when = datetime.datetime.fromtimestamp(secs)
                 except (OverflowError, OSError, ValueError):
                     continue
-                if not (range_start_iso <= when.isoformat() < range_end_iso):
-                    continue
+                entered = True
                 date_str = when.date().isoformat()
                 if (proj, date_str) in covered:
                     continue  # a transcript already covers this cwd + day
-                by_key.setdefault((proj, date_str), []).append(disp[:400])
+                by_key.setdefault((proj, date_str), []).append(disp[:MAX_PROMPT_CHARS])
     except OSError:
         return []
     out = [
-        {"cwd": proj, "date": date_str, "prompts": prompts[:20], "count": len(prompts)}
+        {"cwd": proj, "date": date_str, "prompts": prompts[:MAX_PROMPTS], "count": len(prompts)}
         for (proj, date_str), prompts in by_key.items()
     ]
     out.sort(key=lambda h: (h["date"], h["cwd"]))
@@ -393,13 +413,7 @@ history = load_history_backfill(covered)
 
 # Collect repos from transcript sessions AND history-backfilled days, so cleaned
 # days still get their (durable, gh-sourced) PR/CI/release delivery state.
-cwds = []
-seen_cwd = set()
-for item in sessions + history:
-    c = item.get("cwd")
-    if c and c not in seen_cwd:
-        seen_cwd.add(c)
-        cwds.append(c)
+cwds = [c for c in dict.fromkeys(item.get("cwd") for item in sessions + history) if c]
 
 releases = []
 delivery = []

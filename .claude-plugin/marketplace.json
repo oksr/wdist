@@ -5,14 +5,14 @@
   },
   "metadata": {
     "description": "What did I ship today? — daily recap of your Claude Code sessions",
-    "version": "0.4.1"
+    "version": "0.4.2"
   },
   "plugins": [
     {
       "name": "wdist",
       "source": "./",
       "description": "Generate a shareable daily recap of your Claude Code sessions, in a format between a standup and a highlight reel.",
-      "version": "0.4.1"
+      "version": "0.4.2"
     }
   ]
 }

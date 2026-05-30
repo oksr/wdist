@@ -4,6 +4,12 @@ All notable changes to `wdist` are documented here. This project follows [Semant
 
 To pull the latest version: `/plugin update wdist@wdist`. Auto-update on Claude Code startup is opt-in — enable it via `/plugin` → Marketplaces → `wdist`.
 
+## [0.4.2] - 2026-05-30
+
+### Changed
+- History backfill (`load_history_backfill`) now early-exits once the chronological prompt log passes the target window instead of scanning the whole `~/.claude/history.jsonl` — faster on large logs. The window filter and early-exit compare epoch timestamps (not local-time strings), so they stay correct across a DST fall-back, where a local-time ISO string can repeat an hour and break the chronological assumption. Output is unchanged in normal operation (verified equivalent to a full scan across 193 days of a real log).
+- Internal cleanup: shared `MAX_PROMPTS` / `MAX_PROMPT_CHARS` constants across the transcript and backfill paths, and simplified the cwd dedup.
+
 ## [0.4.1] - 2026-05-30
 
 ### Changed
