@@ -1,14 +1,33 @@
 # What did I ship today?
 
+> One command turns a day of Claude Code sessions into a recap you can share with a peer or save to your journal.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+&nbsp;[![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-d97757.svg)](https://docs.claude.com/en/docs/claude-code)
+&nbsp;[![Changelog](https://img.shields.io/badge/changelog-v0.4.1-brightgreen.svg)](CHANGELOG.md)
+
 ![wdist generating a daily recap in the terminal](assets/wdist.gif)
 
-A Claude Code plugin that generates a shareable daily recap of your Claude Code sessions. The default output is short and Slack-friendly — a few bullets you can paste straight into a DM with your manager or team lead. Pass `--verbose` when you want the full report.
+`/wdist` reads every Claude Code session you ran — across every project — works out what actually shipped, and writes you a tight, share-ready recap. Short by default (a few bullets you can drop in a DM); pass `--verbose` for the full report.
 
-**New in v0.4.0 — date ranges + work memory.** Recap any span, not just a day: `/wdist last week`, `/wdist last month`, `/wdist 2026-05-05 to 2026-05-10`. Ranges that reach past Claude Code's ~30-day transcript cleanup are reconstructed from its long-lived prompt log plus live GitHub delivery, so your history goes back months.
+- 🚢 **Knows what shipped.** Each item is tagged `(merged)` / `(PR open)` / `(CI failed)` by reading the PRs **you** authored and the releases **you** cut — so the recap answers *did it ship?*, not just *what did I touch?*
+- 📆 **Any span, not just today.** `/wdist last week`, `/wdist last month`, `/wdist 2026-05-05 to 2026-05-10`.
+- 🧠 **History goes back months.** Ranges past Claude Code's ~30-day transcript cleanup are rebuilt from its long-lived prompt log plus live GitHub state.
+- 🔒 **Nothing leaves your machine.** It reads local transcripts and writes a markdown file. You copy and paste — no telemetry, no network calls beyond the GitHub CLI you already trust.
 
-v0.3.0 added **delivery state** — each item is tagged `(merged)` / `(PR open)` / `(CI failed)` (or nothing for local-only) by reading the pull requests **you** authored and the releases you cut, so the recap answers *did it ship?*. Needs the GitHub CLI (`gh`); degrades gracefully without it. See the [CHANGELOG](CHANGELOG.md).
+Delivery state needs the GitHub CLI (`gh`); everything degrades gracefully without it. See the [CHANGELOG](CHANGELOG.md) for what landed in each release.
 
-## What you get
+## Install
+
+```
+/plugin marketplace add oksr/wdist
+/plugin install wdist@wdist
+/reload-plugins
+```
+
+Restart Claude Code if the command doesn't show up immediately after /reload-plugins.
+
+## See it in action
 
 Run `/wdist` at the end of the day and Claude reads every session you ran today (across every project), groups them by outcome, and produces something shaped like this (fictional example):
 
@@ -79,15 +98,6 @@ _+ 5 smaller fixes across web and mobile._
 
 Output is also written to `~/claude-recaps/YYYY-MM-DD.md` (or `START_to_END.md` for a range) so you can copy it later without re-running.
 
-## Install
-
-```
-/plugin marketplace add oksr/wdist
-/plugin install wdist@wdist
-/reload-plugins
-```
-
-Restart Claude Code if the command doesn't show up immediately after /reload-plugins.
 
 ## Usage
 
@@ -100,7 +110,7 @@ Restart Claude Code if the command doesn't show up immediately after /reload-plu
 /wdist --verbose                  # full structured report (works with any of the above)
 ```
 
-## How it works
+## Under the hood
 
 Claude Code stores per-session JSONL transcripts at `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`. The plugin's extractor walks those files, filters to records with timestamps inside the target date (so continued multi-day sessions don't pollute the result), and emits a compact JSON document. The `/wdist` command then asks Claude to synthesize it into the format above.
 
@@ -110,7 +120,7 @@ Delivery state (PR + CI status and GitHub Releases) needs the GitHub CLI (`gh`) 
 
 For multi-day ranges, wdist also reads Claude Code's long-lived prompt log (`~/.claude/history.jsonl`) to reconstruct days whose full transcripts have aged out — Claude Code deletes per-session transcripts older than `cleanupPeriodDays` (default 30 days). Reconstructed days are thinner: your prompts plus what shipped (from `gh`), without the full narrative. To retain more complete history going forward, raise `cleanupPeriodDays` in `~/.claude/settings.json`.
 
-## What gets read vs. shared
+## Your data stays local
 
 - **Read locally:** session titles, your prompts, Claude's final message per session, message counts, project paths.
 - **Written locally:** `~/claude-recaps/YYYY-MM-DD.md`.
@@ -118,11 +128,11 @@ For multi-day ranges, wdist also reads Claude Code's long-lived prompt log (`~/.
 
 The synthesis prompt instructs Claude to redact obvious sensitive bits (ARNs, tenant URLs, customer IDs) before producing the markdown, but **review the output before sharing externally** - your sessions almost certainly contain things you don't want in a public Slack channel.
 
-## Tweaking the format
+## Make it your own
 
 The output format lives in `commands/wdist.md`. Edit the "Synthesize the recap" section to change tone, structure, or what counts as "shipped" vs. "in progress." The extractor is intentionally dumb - all the editorial logic is in the prompt.
 
-## Updates
+## Staying current
 
 To pull the latest version:
 
