@@ -1,5 +1,7 @@
 # What did I ship today?
 
+![wdist generating a daily recap in the terminal](assets/wdist.gif)
+
 A Claude Code plugin that generates a shareable daily recap of your Claude Code sessions. The default output is short and Slack-friendly — a few bullets you can paste straight into a DM with your manager or team lead. Pass `--verbose` when you want the full report.
 
 **New in v0.4.0 — date ranges + work memory.** Recap any span, not just a day: `/wdist last week`, `/wdist last month`, `/wdist 2026-05-05 to 2026-05-10`. Ranges that reach past Claude Code's ~30-day transcript cleanup are reconstructed from its long-lived prompt log plus live GitHub delivery, so your history goes back months.
@@ -55,7 +57,27 @@ on the payment SDK upgrade.
 _7 Claude Code sessions across `web` and `mobile`._
 ```
 
-Output is also written to `~/claude-recaps/YYYY-MM-DD.md` so you can copy it later without re-running.
+Pass a range — `/wdist last week`, `/wdist last month`, or an explicit `2026-05-26 to 2026-05-30` — and the recap collapses the whole span into themes (a thread that ran Mon–Thu is one bullet, not four), splits *Shipped* from *Still moving*, and leads with the delivery tally (fictional example):
+
+```
+*What I shipped — week of May 26–30*
+Checkout was the through-line — funnel A/B shipped, payments and tax landed, plus address-form cleanup. *6 merged, 2 in review, 1 released.*
+
+*Shipped*
+• *Checkout funnel A/B* (merged) — cookie-based variant assignment fixed; live to 10%.
+• *Tax calculator v2* (released) — EU VAT rounding fixed; cut `v2.1.0` Wednesday.
+• *Payment SDK 4.x upgrade* (merged) — mobile unblocked, migration notes published.
+• *Address-form regressions* (merged) — Safari autocomplete + paste-handling — web.
+
+*Still moving*
+• *Saved-cards redesign* (PR open) — UI done, waiting on a design review.
+• *Webhook retry dedupe* (CI failed) — duplicate-charge edge case; retry suite still red.
+_+ 5 smaller fixes across web and mobile._
+```
+
+`--verbose` renders the same span as a full themed report (Shipped / In progress / Notes, with PR numbers and commits). For long spans, the top themes lead and the routine tail rolls up into one line.
+
+Output is also written to `~/claude-recaps/YYYY-MM-DD.md` (or `START_to_END.md` for a range) so you can copy it later without re-running.
 
 ## Install
 

@@ -4,6 +4,11 @@ All notable changes to `wdist` are documented here. This project follows [Semant
 
 To pull the latest version: `/plugin update wdist@wdist`. Auto-update on Claude Code startup is opt-in — enable it via `/plugin` → Marketplaces → `wdist`.
 
+## [0.4.1] - 2026-05-30
+
+### Changed
+- Added a demo GIF to the README showing `/wdist` generating a daily recap (with a weekly range as a bonus scene). Docs only — no behavior change.
+
 ## [0.4.0] - 2026-05-28
 
 ### Added
