@@ -1,6 +1,6 @@
 ---
 description: What did I ship today? — generate a shareable daily recap of your Claude Code sessions
-argument-hint: "[YYYY-MM-DD] [--verbose]   (defaults to today, short Slack-friendly format)"
+argument-hint: "[YYYY-MM-DD] [--verbose] | what i learned [--share]   (defaults to today's shipped recap)"
 ---
 
 You are generating a daily work recap from the user's Claude Code session
@@ -10,11 +10,29 @@ log dump.
 
 ## Step 1 — Parse arguments, resolve dates, extract data
 
-`$ARGUMENTS` may contain a `--verbose` flag and an optional date expression:
+First, **detect the recap mode.** `$ARGUMENTS` selects one of two modes:
+
+- **Learnings mode** — if `$ARGUMENTS` contains `--learned`/`--learnings` *or* a
+  natural-language learnings phrase (`what i learned`, `what did i learn`,
+  `learnings`, `what i've learned`). This recap answers *what did I learn*
+  (discovered facts and gotchas), not what shipped.
+- **Shipped mode** — anything else (the default). The original recap: *what did
+  I ship*.
+
+If **learnings mode**, still resolve the date expression below (resolution is
+shared between modes), but run the extractor with the `--learnings` flag and then
+**follow `${CLAUDE_PLUGIN_ROOT}/prompts/learned.md` instead of Steps 2–3 here** —
+read that file and do exactly what it says. Steps 2–3 of *this* file are the
+**shipped**-mode synthesis only.
+
+`$ARGUMENTS` may also contain a `--verbose` flag and an optional date expression:
 nothing (= today), a single ISO date (`2026-05-15`), a relative phrase
 (`yesterday`, `this week`, `last week`, `this month`, `last month` / `monthly`),
-or an explicit range (`2026-05-05 to 2026-05-10`). Default mode is **short**
-(Slack-friendly); `--verbose` switches to the long form.
+or an explicit range (`2026-05-05 to 2026-05-10`). Default shipped mode is
+**short** (Slack-friendly); `--verbose` switches to the long form. (The
+learnings-phrase words above are mode selectors, **not** part of the date
+expression — strip them before resolving dates. `--share` is a learnings-only
+flag, handled in `learned.md`.)
 
 Resolve the date expression to a concrete `START` and `END` (both `YYYY-MM-DD`,
 inclusive — equal for a single day). First print today's calendar anchors. This
@@ -58,6 +76,17 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/recap-day.py" START END > "/tmp/recap-STA
 substituting the actual dates (e.g. `... 2026-05-19 2026-05-25 > /tmp/recap-2026-05-19_to_2026-05-25.json`).
 For a single day `START == END` and the result matches prior single-date
 behavior. Note whether `--verbose` was in `$ARGUMENTS`.
+
+**Learnings mode** runs the same extractor with `--learnings` appended and writes
+to a distinct `-learnings` file (so it never clobbers a shipped recap), then hands
+off to `learned.md`:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/recap-day.py" START END --learnings > "/tmp/recap-START_to_END-learnings.json"
+```
+
+Once you've written that file, **stop following this file and read
+`${CLAUDE_PLUGIN_ROOT}/prompts/learned.md`** — it owns the rest of learnings mode.
 
 Then read the JSON file you just wrote. Its `start` / `end` fields bound the
 recap (equal for a single day; see Step 2 for the single-day vs range split). It

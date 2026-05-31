@@ -10,10 +10,15 @@ that contained activity within the target date range.
 """
 import json, os, sys, glob, datetime, subprocess, re
 
-# Accept a single date or an inclusive START END range. END defaults to START,
-# so `recap-day.py YYYY-MM-DD` (or no arg = today) behaves exactly as before.
-START = sys.argv[1] if len(sys.argv) > 1 else datetime.date.today().isoformat()
-END = sys.argv[2] if len(sys.argv) > 2 else START
+# Accept a single date or an inclusive START END range, plus optional flags.
+# END defaults to START, so `recap-day.py YYYY-MM-DD` (or no arg = today) behaves
+# exactly as before. `--learnings` switches to the learnings dump (see below);
+# without it the output is byte-for-byte the original shipped recap.
+_args = sys.argv[1:]
+LEARNINGS = "--learnings" in _args
+_positional = [a for a in _args if not a.startswith("--")]
+START = _positional[0] if _positional else datetime.date.today().isoformat()
+END = _positional[1] if len(_positional) > 1 else START
 range_start_dt = datetime.datetime.fromisoformat(START + "T00:00:00")
 # Exclusive end: midnight after the last day in the range.
 range_end_dt = datetime.datetime.fromisoformat(END + "T00:00:00") + datetime.timedelta(days=1)
@@ -37,6 +42,23 @@ PROJECTS_DIR = os.path.expanduser("~/.claude/projects")
 # the two prompt lists (which feed the same recap prompt) stay in sync.
 MAX_PROMPTS = 20        # cap on prompts collected per session / backfilled day
 MAX_PROMPT_CHARS = 400  # per-prompt truncation
+
+# Learnings-mode dump limits (only used under --learnings). A "learning" — a
+# discovered fact or a gotcha — lives in the *body* of a session and crystallizes
+# in the call-and-response between turns, so learnings mode emits an interleaved,
+# order-preserving dump of both sides rather than the shipped recap's outcome
+# fields. See docs/adr/0001. Caps are asymmetric: assistant turns carry the
+# root-cause depth; user turns ("you're right, it's the tenant key") are short.
+# The rule is keep-every-turn / shrink-don't-drop: every non-meta turn survives,
+# and only a genuinely huge span (a month) shrinks per-turn caps toward a floor
+# (and, in the extreme, drops middle turns with a `truncated` flag).
+LEARN_ASSISTANT_CHARS = 600   # per assistant-turn cap at full size
+LEARN_USER_CHARS = 250        # per user-turn cap at full size
+LEARN_FLOOR_CHARS = 200       # caps never shrink below this
+LEARN_TURN_SAFETY_CHARS = 2000  # memory bound while collecting (pre-final-cap)
+LEARN_GLOBAL_BUDGET = 500_000   # total turn-text chars before uniform shrink kicks in
+LEARN_KEEP_HEAD = 1           # turns kept from the start when an extreme span forces a drop
+LEARN_KEEP_TAIL = 12          # turns kept from the end (where understanding consolidates)
 
 
 def extract_text(content):
@@ -66,7 +88,7 @@ def is_meta_user(text):
     ))
 
 
-def summarize_session(path):
+def summarize_session(path, learnings=False):
     title = None
     cwd = None
     session_id = None
@@ -78,6 +100,10 @@ def summarize_session(path):
     first_ts_in_range = None
     last_ts_in_range = None
     user_msgs_in_range = []
+    # Ordered interleaved dialogue for learnings mode (empty otherwise). Adjacency
+    # is load-bearing: a "you're right" only means something next to the claim it
+    # answers, so user and assistant turns share one list in conversation order.
+    turns_in_range = []
 
     with open(path) as f:
         for line in f:
@@ -122,16 +148,38 @@ def summarize_session(path):
                         last_user_in_range = text
                         if len(user_msgs_in_range) < MAX_PROMPTS:
                             user_msgs_in_range.append(text[:MAX_PROMPT_CHARS])
+                        if learnings:
+                            turns_in_range.append(
+                                {"role": "user", "text": text[:LEARN_TURN_SAFETY_CHARS]})
             elif t == "assistant":
                 msg = d.get("message", {})
                 if isinstance(msg, dict):
                     text = extract_text(msg.get("content", ""))
                     if text.strip():
                         assistant_turns_in_range += 1
-                        last_assistant_in_range = text.strip()
+                        text = text.strip()
+                        last_assistant_in_range = text
+                        if learnings:
+                            turns_in_range.append(
+                                {"role": "assistant", "text": text[:LEARN_TURN_SAFETY_CHARS]})
 
     if first_ts_in_range is None:
         return None
+
+    if learnings:
+        # Outcome fields (first_user/last_assistant/user_prompts) are replaced by
+        # the interleaved `turns` dump; per-turn caps and the global budget are
+        # applied after all sessions are collected (apply_learnings_budget).
+        return {
+            "session_id": session_id,
+            "cwd": cwd,
+            "title": title,
+            "start": first_ts_in_range,
+            "end": last_ts_in_range,
+            "user_turns": user_turns_in_range,
+            "assistant_turns": assistant_turns_in_range,
+            "turns": turns_in_range,
+        }
 
     return {
         "session_id": session_id,
@@ -155,11 +203,57 @@ for project_dir in sorted(glob.glob(os.path.join(PROJECTS_DIR, "*"))):
     for jsonl in glob.glob(os.path.join(project_dir, "*.jsonl")):
         if os.path.getmtime(jsonl) < range_start_epoch:
             continue
-        s = summarize_session(jsonl)
+        s = summarize_session(jsonl, learnings=LEARNINGS)
         if s:
             sessions.append(s)
 
 sessions.sort(key=lambda s: s["start"])
+
+
+def _turn_cost(turn, a_cap, u_cap):
+    cap = a_cap if turn["role"] == "assistant" else u_cap
+    return min(len(turn["text"]), cap)
+
+
+def apply_learnings_budget(sessions):
+    """Apply per-turn caps and the global char budget to the collected `turns`,
+    in place. Policy (docs/adr/0001): keep every turn at full caps when the recap
+    fits the budget — the common single-day/week case. Only a span large enough to
+    blow LEARN_GLOBAL_BUDGET shrinks the caps uniformly toward LEARN_FLOOR_CHARS;
+    and only if it still overflows at the floor do we drop middle turns (keeping
+    head + tail) and flag the session `truncated`. No mid-session turn is ever
+    dropped on a normal day or week."""
+    def total(a_cap, u_cap):
+        return sum(_turn_cost(t, a_cap, u_cap) for s in sessions for t in s["turns"])
+
+    a_cap, u_cap = LEARN_ASSISTANT_CHARS, LEARN_USER_CHARS
+    full = total(a_cap, u_cap)
+    if full > LEARN_GLOBAL_BUDGET:
+        # Uniform shrink: scale both caps by the same factor, floored.
+        scale = LEARN_GLOBAL_BUDGET / full
+        a_cap = max(LEARN_FLOOR_CHARS, int(a_cap * scale))
+        u_cap = max(LEARN_FLOOR_CHARS, int(u_cap * scale))
+
+    for s in sessions:
+        for t in s["turns"]:
+            cap = a_cap if t["role"] == "assistant" else u_cap
+            t["text"] = t["text"][:cap]
+
+    # Extreme span: even flooring every turn overflows. Drop middle turns from the
+    # largest sessions (keep first turn = topic anchor, and the tail where
+    # understanding consolidates) until under budget, flagging each clipped session.
+    if total(a_cap, u_cap) > LEARN_GLOBAL_BUDGET:
+        keep = LEARN_KEEP_HEAD + LEARN_KEEP_TAIL
+        for s in sorted(sessions, key=lambda s: len(s["turns"]), reverse=True):
+            if len(s["turns"]) > keep:
+                s["turns"] = s["turns"][:LEARN_KEEP_HEAD] + s["turns"][-LEARN_KEEP_TAIL:]
+                s["truncated"] = True
+            if sum(len(t["text"]) for ss in sessions for t in ss["turns"]) <= LEARN_GLOBAL_BUDGET:
+                break
+
+
+if LEARNINGS:
+    apply_learnings_budget(sessions)
 
 
 GITHUB_URL_RE = re.compile(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?/?$")
@@ -414,6 +508,20 @@ history = load_history_backfill(covered)
 # Collect repos from transcript sessions AND history-backfilled days, so cleaned
 # days still get their (durable, gh-sourced) PR/CI/release delivery state.
 cwds = [c for c in dict.fromkeys(item.get("cwd") for item in sessions + history) if c]
+
+if LEARNINGS:
+    # Learnings mode skips the gh delivery/releases joins entirely (pure "shipped"
+    # signal — see docs/adr/0001): faster, network-free, leaner JSON. `history` is
+    # still emitted so the prompt can flag days past transcript retention as
+    # learning-blind (those days carry only prompts, no assistant narrative).
+    print(json.dumps(
+        {"date": START if START == END else f"{START}..{END}",
+         "start": START, "end": END, "mode": "learnings",
+         "count": len(sessions), "sessions": sessions,
+         "history": history},
+        indent=2, ensure_ascii=False,
+    ))
+    sys.exit(0)
 
 releases = []
 delivery = []

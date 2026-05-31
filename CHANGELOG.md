@@ -4,6 +4,15 @@ All notable changes to `wdist` are documented here. This project follows [Semant
 
 To pull the latest version: `/plugin update wdist@wdist`. Auto-update on Claude Code startup is opt-in — enable it via `/plugin` → Marketplaces → `wdist`.
 
+## [Unreleased]
+
+### Added
+- **Learnings mode — `/wdist what i learned`.** A second recap that answers *what did I learn* (discovered facts and gotchas) rather than what shipped. Triggered by a natural-language phrase (`what i learned`, `what did i learn`, `learnings`) or the `--learned` flag, under the existing single `/wdist` command — it composes with all the usual dates and ranges (`/wdist what i learned last week`).
+  - **Default output is a specifics-rich personal log** for future-you — it *keeps* file paths, function names, and root causes (the inverse of the shipped recap, which strips identifiers for Slack). Learnings are grouped by **topic**, not session, with user-confirmed learnings ("you're right") surfaced first. `--share` produces a condensed, redacted TIL for posting to a team channel.
+  - `recap-day.py` gains a `--learnings` flag that emits a per-session, order-preserving interleaved dump of user + assistant turns (so a confirmation stays attached to the claim it answers), keep-every-turn with asymmetric per-turn caps and shrink-don't-drop budgeting. Learnings mode skips the `gh` delivery/releases joins (pure "shipped" signal), so it's faster and network-free. The default shipped output is byte-for-byte unchanged.
+  - Learnings recaps are written to `~/claude-recaps/{LABEL}-learnings.md` — the `-learnings` suffix guarantees they never overwrite a shipped recap.
+  - Synthesis lives in a dedicated `prompts/learned.md`, kept separate from the shipped synthesis in `commands/wdist.md`. Design rationale is recorded in `docs/adr/0001` and `docs/adr/0002`; project glossary in `CONTEXT.md`.
+
 ## [0.4.2] - 2026-05-30
 
 ### Changed
