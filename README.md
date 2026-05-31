@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 &nbsp;[![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-d97757.svg)](https://docs.claude.com/en/docs/claude-code)
-&nbsp;[![Changelog](https://img.shields.io/badge/changelog-v0.4.1-brightgreen.svg)](CHANGELOG.md)
+&nbsp;[![Changelog](https://img.shields.io/badge/changelog-v0.4.2-brightgreen.svg)](CHANGELOG.md)
 
 ![wdist generating a daily recap in the terminal](assets/wdist.gif)
 

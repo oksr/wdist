@@ -3,3 +3,10 @@
 __pycache__/
 .vscode/
 .idea/
+.claude/
+.gbrain-source
+
+# Local-only working files (launch copy, roadmap plans, skills lockfile) — not shipped to users
+LAUNCH.md
+PLAN-*.md
+skills-lock.json
