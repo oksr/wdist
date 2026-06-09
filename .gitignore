@@ -4,9 +4,17 @@ __pycache__/
 .vscode/
 .idea/
 .claude/
+.agents/
 .gbrain-source
 
 # Local-only working files (launch copy, roadmap plans, skills lockfile) — not shipped to users
 LAUNCH.md
 PLAN-*.md
 skills-lock.json
+test-projects/
+
+# Portfolio prototype output — may contain un-redacted secrets; never commit
+portfolio-output.json
+portfolio-*.json
+
+internal-docs/
